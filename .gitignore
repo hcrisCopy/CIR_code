@@ -1,0 +1,13 @@
+__pycache__/
+.ipynb_checkpoints/
+*.py[cod]
+*.pth
+*.pt
+*.ckpt
+*.log
+.workbuddy/
+.venv/
+*.pdf
+*方案*.md
+*实验设计*.md
+*研究计划*.md
