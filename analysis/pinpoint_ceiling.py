@@ -74,6 +74,28 @@ def main():
                 )
             values.append(row)
         v = np.array(values)
+        if model == "BGE-VL-MLLM-S1":
+            original = files(MODELS[model])
+            former = v[:, 0].copy()
+        if model == "BGE-reranked":
+            current = files(MODELS[model])
+            assert original.keys() == current.keys()
+            same = sum(
+                set(row["retrieved_items"][:50]) == set(current[k]["retrieved_items"][:50])
+                for k, row in original.items()
+            )
+            assert len(former) == len(v)
+            paired = v[:, 0] - former
+            lo_p, hi_p = np.quantile(bootstrap(paired, refs), [0.025, 0.975], axis=0)
+            output["public_bge_comparison"] = dict(
+                n=len(v),
+                equal_top50=same,
+                delta=paired.mean(0).tolist(),
+                lo=lo_p.tolist(),
+                hi=hi_p.tolist(),
+                ap_gained=int((paired[:, 0] > 0).sum()),
+                ap_lost=int((paired[:, 0] < 0).sum()),
+            )
         d = v - v[:, :1]
         estimates = bootstrap(d.reshape(len(v), -1), refs).reshape(1000, v.shape[1], 2)
         lo, hi = np.quantile(estimates, [0.025, 0.975], axis=0)
