@@ -114,7 +114,6 @@ def analyze(args, rt, encoder, category):
         names
     )
     wrong = chunks_compose(encoder, im["global"][other[ri]], t, rt.device)
-    gray - clean
     gen = torch.Generator().manual_seed(42)
     noise = torch.randn(clean.shape, generator=gen)
     tangent = F.normalize(noise - (noise * clean).sum(1, keepdim=True) * clean)
@@ -143,6 +142,14 @@ def analyze(args, rt, encoder, category):
                 )
             ]
         )
+    if args.operator:
+        from .color_operator import checkpoint, compose_signed
+        from baseline.runtime import load
+
+        op = load(checkpoint(args))
+        if op["encoder"] != meta["weights"][0] or op["dataset"] != args.dataset:
+            raise ValueError("Incompatible color operator")
+        queries["text_operator"] = compose_signed(t, clean, gray, op)
     identity = encoder.texts([""]).cpu().expand(len(qs), -1)
     q0 = chunks_compose(encoder, ref, identity, rt.device)
     gallery_gpu = gallery.to(rt.device)
@@ -171,7 +178,13 @@ def analyze(args, rt, encoder, category):
     base_rank = None
     per_query = {}
     truth = read_lines(
-        ROOT / "results/diagnosis" / run_key(args) / args.split / "base" / category / "rankings.jsonl"
+        ROOT
+        / "results/diagnosis"
+        / run_key(args)
+        / args.split
+        / "base"
+        / category
+        / "rankings.jsonl"
     )
     for name in tqdm([*queries, "chord034"], desc=f"{category} paired rankings"):
         q = queries.get(name, clean)
@@ -276,6 +289,7 @@ if __name__ == "__main__":
     p = parser(__doc__)
     p.add_argument("--split", choices=["train", "val"], required=True)
     p.add_argument("--heads", nargs="*", default=[])
+    p.add_argument("--operator", action="store_true")
     args = p.parse_args()
     if args.backbone != "vit_cir":
         p.error("Use the trained ViT Combiner")

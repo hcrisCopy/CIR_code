@@ -16,6 +16,7 @@ from baseline.heads import read_head
 from baseline.model import Encoder, checkpoint_paths, load_image
 from baseline.runtime import Runtime, parser, run_key, write_json
 
+from .color_views import perturb
 from .paired_edits import COLOR, cluster_stat
 
 PALETTES = {
@@ -32,6 +33,11 @@ PROMPTS = (
         "keep": "the color stays the same",
         "set": "the garment should be {color}",
         "switch": "exchange {a} for {b}, or {b} for {a}, whichever applies",
+    },
+    {
+        "keep": "given the options {a} and {b}, use the color in the photo",
+        "set": "given the options {a} and {b}, choose {color} for both reference photos",
+        "switch": "given the options {a} and {b}, use the color absent from the photo",
     },
 )
 MEAN = (0.48145466, 0.4578275, 0.40821073)
@@ -92,37 +98,59 @@ def run(args, rt, enc, category):
     weights = [digest(p) for p in files]
     heads = {
         name: read_head(
-            ROOT / "checkpoints/diagnosis" / run_key(args) / name / "last.pt", args, weights, rt.device
+            ROOT / "checkpoints/diagnosis" / run_key(args) / name / "last.pt",
+            args,
+            weights,
+            rt.device,
         )[:2]
         for name in args.heads
     }
     summaries = {}
     records = []
+    from .color_operator import checkpoint, compose_signed, coefficient
+    from baseline.runtime import load
+
+    op = load(checkpoint(args))
+    if op["encoder"] != weights[0] or op["dataset"] != args.dataset:
+        raise ValueError("Incompatible color operator")
     for pname, pal in PALETTES.items():
         for a in tqdm(range(0, len(rows), args.batch_size), desc=f"{category}/{pname}"):
             batch = rows[a : a + args.batch_size]
-            len(batch)
-            src = torch.stack([load_image(paths[q["reference"]], enc.preprocess) for q in batch]).to(
-                rt.device
-            )
+            src = torch.stack(
+                [load_image(paths[q["reference"]], enc.preprocess) for q in batch]
+            ).to(rt.device)
             dst = torch.stack([load_image(paths[q["target"]], enc.preprocess) for q in batch]).to(
                 rt.device
             )
             ref = enc.images(torch.cat(colorize(src, pal)))
+            neutral = enc.clip.encode_image(perturb(src)[0]).repeat(2, 1)
             candidates = F.normalize(enc.clip.encode_image(torch.cat(colorize(dst, pal))))
             v0, v1 = candidates.chunk(2)
             direction = v0 - v1
             for template, prompt in enumerate(PROMPTS):
                 for mode in ("keep", "set0", "set1", "switch"):
                     phrase = (
-                        prompt["set"].format(color=pal[int(mode[-1])])
+                        prompt["set"].format(color=pal[int(mode[-1])], a=pal[0], b=pal[1])
                         if mode.startswith("set")
                         else prompt[mode].format(a=pal[0], b=pal[1])
                     )
                     text = enc.texts([q["text"] + ", and " + phrase for q in batch]).repeat(2, 1)
                     base = enc.compose(ref["global"], text)
+                    neutral_q = enc.compose(neutral, text)
+                    inverse_q = F.normalize(2 * neutral_q - base)
+                    # The oracle knows only the instruction operator, never the target or palette.
+                    oracle = {
+                        "keep": base,
+                        "set0": neutral_q,
+                        "set1": neutral_q,
+                        "switch": inverse_q,
+                    }
                     preds = {
                         "base": base,
+                        "gray": neutral_q,
+                        "inverse": inverse_q,
+                        "operator_oracle": oracle[mode],
+                        "text_operator": compose_signed(text, base, neutral_q, op),
                         "reference": F.normalize(ref["global"]),
                         "text": F.normalize(text),
                     }
@@ -139,7 +167,12 @@ def run(args, rt, enc, category):
                         stats = torch.stack(
                             (success.float().mean(1), success.all(1).float(), m0 - m1), dim=1
                         ).tolist()
-                        for q, (acc, joint, slope) in zip(batch, stats):
+                        coefs = (
+                            coefficient(text[: len(batch)], op).tolist()
+                            if name == "text_operator"
+                            else [None] * len(batch)
+                        )
+                        for q, (acc, joint, slope), coef in zip(batch, stats, coefs):
                             records.append(
                                 dict(
                                     id=q["id"],
@@ -152,6 +185,7 @@ def run(args, rt, enc, category):
                                     accuracy=acc,
                                     joint=joint,
                                     slope=slope,
+                                    coefficient=coef,
                                 )
                             )
     from collections import defaultdict
@@ -166,7 +200,9 @@ def run(args, rt, enc, category):
         }
     write_json(
         folder / "summary.json",
-        dict(n_products=len(rows), settings=list(PALETTES), templates=len(PROMPTS), methods=summaries),
+        dict(
+            n_products=len(rows), settings=list(PALETTES), templates=len(PROMPTS), methods=summaries
+        ),
     )
     import gzip
     import json
