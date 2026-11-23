@@ -76,7 +76,6 @@ def test(labels):
     rec = defaultdict(list)
     for a in range(0, len(valid), 16):
         subset = valid[a : a + 16]
-        n = len(subset)
         x = torch.stack([load_image(paths[k], enc.preprocess) for k, _ in subset]).to(rt.device)
         features = {
             k: F.normalize(v).cpu() for k, v in enc.images(torch.cat([x, x.flip([-1])])).items()

@@ -39,4 +39,6 @@ python -m analysis.evidence
 
 ## 可选的人工核查
 
+本轮的自然图核查入口是 `python -m analysis.natural_color --per-category 12`、`python -m analysis.natural_direction`、`python -m analysis.spatial_transfer`。它们在 `../CIR_data/results/` 各自同名的目录中生成盲评图表。先按图填写评分文件，再在对应命令后加 `--labels ../CIR_data/results/对应目录/ratings.csv` 算指标。三张表的列名分别是 `key,same`、`id,horizontal`、`i,side`，取值依次为 `A/B/neither/unclear`、`yes/no/unclear` 和 `left/right/unclear`。
+
 `python run.py review --dataset both --splits train val --per-group 100 --layer 6 --limit 0` 生成 `../CIR_data/reviews/` 下的核查表。填好区域和供体后，用 `python run.py intervene --dataset both --splits train val --backbone vit_cir --gpus 1 --layer 6 --limit 0` 测局部替换，再用 `python run.py compare --dataset both --gpus 1 --feature patch --layer 6 --limit 0` 比较监督方式。结果在 `../CIR_data/results/interventions/` 和 `../CIR_data/results/diagnosis/`。[填写说明](analysis/人工核查.md)
