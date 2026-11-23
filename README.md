@@ -33,7 +33,7 @@ python experiments.py --dataset both --limit 0 --seeds 42 7 123 --products 128
 python -m analysis.evidence
 ```
 
-第一条分别训练两个数据集的冻结 ViT + Combiner，比较最终层与第六层的读出，再做同参考图的指令配对、参考图去色、训练监督对照和 CIRCUS 切片评测。FashionIQ 另测三种指令：保留原色、指定颜色、换成另一种颜色。图库始终使用原划分；受控改色单独做二选一。训练曲线在 `../CIR_data/checkpoints/diagnosis/`，逐查询排名在 `../CIR_data/results/paired_edits/`，第二条生成 `../CIR_data/results/nov23/evidence/` 下的汇总表和图。
+第一条分别训练两个数据集的冻结 ViT + Combiner，比较最终层与第六层的读出，再做同参考图的指令配对、参考图去色、训练监督对照和 CIRCUS 切片评测。FashionIQ 另测三种指令：保留原色、指定颜色、换成另一种颜色。另用目标颜色改写、左右位置和训练集读出检验失败原因。原始检索使用各自的完整图库，受控实验单独做二选一。训练曲线在 `../CIR_data/checkpoints/diagnosis/`，逐查询排名在 `../CIR_data/results/paired_edits/`，第二条生成 `../CIR_data/results/nov23/evidence/` 下的汇总表和图。
 
 只看基线或先调试，可运行 `python run.py baseline --dataset cirr --gpus 1 --limit 128 --layer 6`。全量用 `--limit 0`。缓存和训练支持断点续跑。
 

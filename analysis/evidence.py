@@ -158,9 +158,23 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     data = {ds: natural(ds) for ds in CATEGORIES}
     control, breakdown = controlled()
+    secondary = {}
+    for section in ("target_state", "controlled_position"):
+        secondary[section] = {
+            cat: read(ROOT / "results" / section / "fashioniq" / RUN / cat / "summary.json")
+            for cat in CATEGORIES["fashioniq"]
+        }
+    secondary["factor_readout"] = read(
+        ROOT / "results/factor_readout/fashioniq" / RUN / "summary.json"
+    )
     write_json(
         OUT / "evidence.json",
-        dict(natural=data, controlled=control, controlled_by_template_palette=breakdown),
+        dict(
+            natural=data,
+            controlled=control,
+            controlled_by_template_palette=breakdown,
+            secondary=secondary,
+        ),
     )
     with (OUT / "estimates.csv").open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
