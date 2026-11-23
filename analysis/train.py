@@ -64,9 +64,14 @@ def make_tables(args, split):
         ids = [i for i, r in enumerate(rows) if not reviewed or (category, r["id"]) in reviewed]
         natural = None
         if split == "train" and args.paired_color:
-            path = ROOT / "results/paired_edits" / run_key(args) / split / category / "supervision.pt"
+            path = (
+                ROOT / "results/paired_edits" / run_key(args) / split / category / "supervision.pt"
+            )
             natural = load(path)
-            if natural["identity"] != meta["identity"] or natural["temperature"] != args.temperature:
+            if (
+                natural["identity"] != meta["identity"]
+                or natural["temperature"] != args.temperature
+            ):
                 raise ValueError("Incompatible natural-pair chroma supervision")
             lineage[f"{category}_paired_color"] = digest(path)
             ids = natural["ids"]
@@ -157,7 +162,8 @@ def validate(model, table, banks, args, rt):
                 scores.scatter_(1, table["ref_id"][ids, None], -torch.inf)
             target_scores = scores.gather(1, target[:, None])
             ahead = (scores > target_scores) | (
-                (scores == target_scores) & (torch.arange(len(bank), device=rt.device) < target[:, None])
+                (scores == target_scores)
+                & (torch.arange(len(bank), device=rt.device) < target[:, None])
             )
             ranks = 1 + ahead.sum(1)
             win = (query * (table["positive"][ids] - table["negative"][ids])).sum(1) > 0
@@ -247,13 +253,17 @@ def train(args, rt):
     tr = {k: v.to(rt.device) for k, v in train_data.items()}
     va = {k: v.to(rt.device) for k, v in val_data.items()}
     banks = [bank.to(rt.device) for bank in banks]
-    permutation = torch.randperm(n, generator=torch.Generator().manual_seed(args.seed)).to(rt.device)
+    permutation = torch.randperm(n, generator=torch.Generator().manual_seed(args.seed)).to(
+        rt.device
+    )
     for epoch in range(len(history), args.epochs):
         start = time.perf_counter()
         torch.cuda.reset_peak_memory_stats(rt.device)
         torch.manual_seed(args.seed + epoch * rt.world + rt.rank)
         model_ddp.train()
-        order = torch.randperm(n, generator=torch.Generator().manual_seed(args.seed + epoch)).to(rt.device)
+        order = torch.randperm(n, generator=torch.Generator().manual_seed(args.seed + epoch)).to(
+            rt.device
+        )
         losses = torch.zeros((), device=rt.device)
         chunks = order.tensor_split(math.ceil(n / args.batch_size))
         for indices in tqdm(chunks, desc=f"Epoch {epoch + 1}", disable=rt.rank != 0):
@@ -307,7 +317,9 @@ if __name__ == "__main__":
         choices=["combiner", "retrieval", "probe", "hard", "necessity", "shuffled"],
         default="retrieval",
     )
-    p.add_argument("--review-label", help="Train on the same reviewed pairs for all matched controls")
+    p.add_argument(
+        "--review-label", help="Train on the same reviewed pairs for all matched controls"
+    )
     p.add_argument(
         "--paired-color",
         action="store_true",
@@ -324,7 +336,9 @@ if __name__ == "__main__":
     if args.paired_color and (
         args.review_label or args.feature != "patch" or args.backbone != "vit_cir"
     ):
-        p.error("--paired-color requires a ViT-CIR patch readout and an independent automated pair pool")
+        p.error(
+            "--paired-color requires a ViT-CIR patch readout and an independent automated pair pool"
+        )
     if args.loss == "combiner" and (
         args.backbone != "vit"
         or args.name != "combiner"

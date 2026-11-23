@@ -36,23 +36,23 @@ def select(n):
                 pool.append((key, pair_idx, left, right))
         chosen = []
         used = set()
-        for _, pair_idx, l, r in sorted(pool):
-            if l["reference"] in used:
+        for _, pair_idx, left, right in sorted(pool):
+            if left["reference"] in used:
                 continue
-            used.add(l["reference"])
-            chosen.append((pair_idx, l, r))
+            used.add(left["reference"])
+            chosen.append((pair_idx, left, right))
             if len(chosen) == n:
                 break
         sheet = Image.new("RGB", (3 * 382, ((len(chosen) + 2) // 3) * 147), "white")
         draw = ImageDraw.Draw(sheet)
-        for i, (j, l, r) in enumerate(chosen):
+        for i, (j, left, right) in enumerate(chosen):
             x, y = (i % 3) * 382, (i // 3) * 147
             draw.text(
                 (x + 4, y + 2),
                 f"{cat}-{i + 1:02d}      source             A               B",
                 fill="black",
             )
-            for k, name in enumerate([l["reference"], l["target"], r["target"]]):
+            for k, name in enumerate([left["reference"], left["target"], right["target"]]):
                 with Image.open(paths[name]) as im:
                     thumb = ImageOps.contain(im.convert("RGB"), (122, 121))
                     sheet.paste(
@@ -67,11 +67,11 @@ def select(n):
                     key=f"{cat}-{i + 1:02d}",
                     category=cat,
                     pair_index=j,
-                    reference=l["reference"],
-                    left=l["id"],
-                    right=r["id"],
-                    left_text=l["text"],
-                    right_text=r["text"],
+                    reference=left["reference"],
+                    left=left["id"],
+                    right=right["id"],
+                    left_text=left["text"],
+                    right_text=right["text"],
                 )
             )
         sheet.save(OUT / f"{cat}.jpg", quality=92)
@@ -112,8 +112,8 @@ def score(labels):
         groups.append(x["reference"])
         # Align both instructions on the same visual target axis before differencing.
         g = (d["clean"][j] - d["gray"][j]).numpy()
-        l = (d["clean"][j] - d["luma"][j]).numpy()
-        entries.append([g[s], -g[1 - s], g.sum(), l.sum(), g.sum() - l.sum()])
+        luminance = (d["clean"][j] - d["luma"][j]).numpy()
+        entries.append([g[s], -g[1 - s], g.sum(), luminance.sum(), g.sum() - luminance.sum()])
     values = np.asarray(entries)
     write_json(
         OUT / "audit.json",

@@ -73,6 +73,20 @@ def chunks_compose(encoder, images, texts, device):
     )
 
 
+def mean_edit_queries(encoder, references, texts, device):
+    collected = []
+    edits = texts.to(device)
+    for batch in references.split(32):
+        batch = batch.to(device)
+        count, dim = len(batch), batch.shape[1]
+        q = encoder.compose(
+            batch[:, None].expand(-1, len(edits), -1).reshape(-1, dim),
+            edits[None].expand(count, -1, -1).reshape(-1, dim),
+        )
+        collected.append(q.view(count, len(edits), dim).mean(1).cpu())
+    return torch.cat(collected)
+
+
 def stats_for_margins(margins, clean, refs):
     joint = (margins > 0).all(1)
     baseline = (clean > 0).all(1)
@@ -82,6 +96,8 @@ def stats_for_margins(margins, clean, refs):
         assignment=cluster_stat((margins.sum(1) > 0).numpy(), refs),
         one_only=float(((margins > 0).sum(1) == 1).float().mean()),
         individual=float((margins > 0).float().mean()),
+        mean_edit_separation=float(margins.mean(1).mean()),
+        mean_abs_shared_bias=float(((margins[:, 0] - margins[:, 1]) / 2).abs().mean()),
     )
 
 
@@ -152,6 +168,26 @@ def analyze(args, rt, encoder, category):
         queries["text_operator"] = compose_signed(t, clean, gray, op)
     identity = encoder.texts([""]).cpu().expand(len(qs), -1)
     q0 = chunks_compose(encoder, ref, identity, rt.device)
+    if args.center_reference:
+        # A label-free estimate of the score contribution shared across possible edits.
+        _, train_images, train_queries = load_cache(args, "train", category)
+        gen = torch.Generator().manual_seed(42)
+        sample = torch.randperm(len(train_queries["text"]), generator=gen)[:32]
+        anchors = train_queries["text"][sample]
+        bank = train_images["global"]
+        train_refs = bank[torch.randperm(len(bank), generator=gen)[:256]]
+        center = mean_edit_queries(encoder, train_refs, anchors, rt.device).mean(0)
+        unique, indexes = torch.unique(ri, return_inverse=True)
+        bias = mean_edit_queries(encoder, im["global"][unique], anchors, rt.device) - center
+        queries["center05"] = F.normalize(clean - 0.5 * bias[indexes])
+        queries["center05_shuffled"] = F.normalize(
+            clean - 0.5 * bias[torch.randperm(len(unique), generator=gen)][indexes]
+        )
+        empty_center = chunks_compose(
+            encoder, train_refs, identity[:1].expand(len(train_refs), -1), rt.device
+        ).mean(0)
+        queries["empty05"] = F.normalize(clean - 0.5 * (q0 - empty_center))
+        del train_images, train_queries, bank
     gallery_gpu = gallery.to(rt.device)
     pair_refs = np.array([qs[i]["reference"] for i in left.tolist()])
     color = torch.tensor([bool(COLOR.search(q["text"])) for q in qs])
@@ -290,6 +326,7 @@ if __name__ == "__main__":
     p.add_argument("--split", choices=["train", "val"], required=True)
     p.add_argument("--heads", nargs="*", default=[])
     p.add_argument("--operator", action="store_true")
+    p.add_argument("--center-reference", action="store_true")
     args = p.parse_args()
     if args.backbone != "vit_cir":
         p.error("Use the trained ViT Combiner")
