@@ -48,7 +48,7 @@ def main():
         counts = Counter()
         rng = np.random.default_rng(42)
         for id_, ref, pos, neg in tqdm(truth, desc=model):
-            key = str(int(id_)).zfill(5)
+            key = str(id_).removeprefix("query_").zfill(5)
             base = files[model][key]["retrieved_items"]
             if len(set(base)) != len(base):
                 raise ValueError("Duplicate public candidates")
