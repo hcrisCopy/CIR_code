@@ -114,7 +114,7 @@ def analyze(args, rt, encoder, category):
         names
     )
     wrong = chunks_compose(encoder, im["global"][other[ri]], t, rt.device)
-    changed = gray - clean
+    gray - clean
     gen = torch.Generator().manual_seed(42)
     noise = torch.randn(clean.shape, generator=gen)
     tangent = F.normalize(noise - (noise * clean).sum(1, keepdim=True) * clean)
