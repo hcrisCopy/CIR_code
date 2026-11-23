@@ -11,6 +11,9 @@ import matplotlib.pyplot as plt
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
+from torch.nn.parallel import DistributedDataParallel
+from tqdm import tqdm
+
 from baseline.data import CATEGORIES, ROOT, read
 from baseline.heads import make_head
 from baseline.model import digest
@@ -24,8 +27,6 @@ from baseline.runtime import (
     save,
     write_json,
 )
-from torch.nn.parallel import DistributedDataParallel
-from tqdm import tqdm
 
 from .review import read_lines
 
@@ -61,6 +62,14 @@ def make_tables(args, split):
         banks.append(F.normalize(images["global"]))
         lineage[category] = [meta["identity"], digest(result / "rankings.jsonl")]
         ids = [i for i, r in enumerate(rows) if not reviewed or (category, r["id"]) in reviewed]
+        natural = None
+        if split == "train" and args.paired_color:
+            path = ROOT / "results/paired_edits" / run_key(args) / split / category / "supervision.pt"
+            natural = load(path)
+            if natural["identity"] != meta["identity"] or natural["temperature"] != args.temperature:
+                raise ValueError("Incompatible natural-pair chroma supervision")
+            lineage[f"{category}_paired_color"] = digest(path)
+            ids = natural["ids"]
         if not ids:
             continue
         selected = [rows[i] for i in ids]
@@ -79,6 +88,10 @@ def make_tables(args, split):
         parts["text"].append(queries["text"][ids])
         parts["feature"].append(images[args.feature][refs])
         parts["positive"].append(banks[c][pos])
+        if natural is not None:
+            neg = natural["negative"]
+            for field in ("changed_base", "changed_feature", "target_risk"):
+                parts[field].append(natural[field])
         parts["negative"].append(banks[c][neg])
         parts["pos_id"].append(torch.tensor(pos))
         parts["ref_id"].append(torch.tensor(refs))
@@ -184,7 +197,7 @@ def artifacts(folder, state):
 def train(args, rt):
     if args.backbone == "release" and args.feature != "global":
         raise ValueError("CLS and patch readouts require ViT")
-    if args.loss in ("necessity", "shuffled") and not args.review_label:
+    if args.loss in ("necessity", "shuffled") and not (args.review_label or args.paired_color):
         raise ValueError("Necessity supervision needs reviewed training interventions")
     train_data, _, train_id, weights = make_tables(args, "train")
     val_data, banks, val_id, val_weights = make_tables(args, "val")
@@ -294,6 +307,11 @@ if __name__ == "__main__":
         default="retrieval",
     )
     p.add_argument("--review-label", help="Train on the same reviewed pairs for all matched controls")
+    p.add_argument(
+        "--paired-color",
+        action="store_true",
+        help="Use annotated sibling targets and automated reference desaturation",
+    )
     p.add_argument("--epochs", type=int, default=20)
     p.add_argument("--batch-size", type=int, default=256, help="Global queries per optimizer step")
     p.add_argument("--width", type=int, default=64)
@@ -301,6 +319,10 @@ if __name__ == "__main__":
     p.add_argument("--temperature", type=float, default=0.07)
     p.add_argument("--weight", type=float, default=1.0)
     args = p.parse_args()
+    if args.paired_color and (
+        args.review_label or args.feature != "patch" or args.backbone != "vit_cir"
+    ):
+        p.error("--paired-color requires a ViT-CIR patch readout and an independent automated pair pool")
     if args.loss == "combiner" and (
         args.backbone != "vit"
         or args.name != "combiner"
