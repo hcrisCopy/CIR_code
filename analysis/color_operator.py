@@ -76,7 +76,7 @@ def train(args):
         )
     y = torch.tensor(labels, dtype=x.dtype)
     center = x.mean(0)
-    x -= center
+    x = x - center
     weight = torch.linalg.solve(
         x.T @ x + 0.1 * torch.eye(x.shape[1], dtype=x.dtype), x.T @ (y - y.mean())
     )
