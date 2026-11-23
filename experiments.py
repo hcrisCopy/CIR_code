@@ -114,6 +114,8 @@ def run(args, ds):
                 "color_shuffled",
                 "color_necessity",
             )
+            for script in ("analysis.target_state", "analysis.position"):
+                execute("-m", script, *base, "--per-category", args.products)
 
 
 if __name__ == "__main__":
