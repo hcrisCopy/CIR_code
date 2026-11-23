@@ -208,7 +208,7 @@ def train(args, rt):
         raise ValueError("Training requires at least two queries")
     cfg = dict(
         version=1,
-        seed=42,
+        seed=args.seed,
         dim=dim,
         width=args.width,
         gate=args.gate,
@@ -227,6 +227,7 @@ def train(args, rt):
     )
     folder = ROOT / "checkpoints/diagnosis" / run_key(args) / args.name
     prepare_run(folder, cfg, rt, args.clean)
+    torch.manual_seed(args.seed)
     model = make_head(cfg).to(rt.device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
     checkpoint = folder / "last.pt"
@@ -246,13 +247,13 @@ def train(args, rt):
     tr = {k: v.to(rt.device) for k, v in train_data.items()}
     va = {k: v.to(rt.device) for k, v in val_data.items()}
     banks = [bank.to(rt.device) for bank in banks]
-    permutation = torch.randperm(n, generator=torch.Generator().manual_seed(42)).to(rt.device)
+    permutation = torch.randperm(n, generator=torch.Generator().manual_seed(args.seed)).to(rt.device)
     for epoch in range(len(history), args.epochs):
         start = time.perf_counter()
         torch.cuda.reset_peak_memory_stats(rt.device)
-        torch.manual_seed(42 + epoch * rt.world + rt.rank)
+        torch.manual_seed(args.seed + epoch * rt.world + rt.rank)
         model_ddp.train()
-        order = torch.randperm(n, generator=torch.Generator().manual_seed(42 + epoch)).to(rt.device)
+        order = torch.randperm(n, generator=torch.Generator().manual_seed(args.seed + epoch)).to(rt.device)
         losses = torch.zeros((), device=rt.device)
         chunks = order.tensor_split(math.ceil(n / args.batch_size))
         for indices in tqdm(chunks, desc=f"Epoch {epoch + 1}", disable=rt.rank != 0):
@@ -313,6 +314,7 @@ if __name__ == "__main__":
         help="Use annotated sibling targets and automated reference desaturation",
     )
     p.add_argument("--epochs", type=int, default=20)
+    p.add_argument("--seed", type=int, default=42)
     p.add_argument("--batch-size", type=int, default=256, help="Global queries per optimizer step")
     p.add_argument("--width", type=int, default=64)
     p.add_argument("--lr", type=float, default=0.0003)
