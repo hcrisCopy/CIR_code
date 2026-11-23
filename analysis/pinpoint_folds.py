@@ -36,9 +36,14 @@ def construct(model, truth, text, image):
     stats = np.zeros((5, 9, 9))
     outcomes = np.zeros((5, 9, 2))
     queries = []
+    matched_refs = []
     counts = Counter()
     for qid, ref, pos, neg in truth:
         k = str(qid).removeprefix("query_").zfill(5)
+        if k not in ranking:
+            counts["missing_published_query"] += 1
+            continue
+        matched_refs.append(ref)
         candidates = ranking[k]["retrieved_items"][:50]
         if len(set(candidates)) != len(candidates):
             raise ValueError(f"Duplicate candidate for {model}/{k}")
@@ -59,8 +64,9 @@ def construct(model, truth, text, image):
         counts["any_image_no_text_negative"] += int((suspect & y[:10, 1].astype(bool)).any())
         counts["any_image_no_text_positive"] += int((suspect & y[:10, 0].astype(bool)).any())
         counts["sum_shortlist_sizes"] += len(candidates)
-    assert len(queries) == len(ranking)
-    return (stats, outcomes), queries, dict(counts)
+    counts["published_without_annotation_match"] = len(ranking) - len(queries)
+    assert len(queries) + counts["missing_published_query"] == len(truth)
+    return (stats, outcomes), queries, dict(counts), matched_refs
 
 
 def learn(stats, fs, fold_id):
@@ -76,7 +82,7 @@ def main():
     truth = duckdb.sql(
         f"SELECT query_id,query_image_signature,positive_candidates,negative_candidates FROM read_parquet('{PUBLIC}/pinpoint_licensed.parquet') ORDER BY query_id"
     ).fetchall()
-    refs = [row[1] for row in truth]
+    model_refs = {}
     text, image = [
         {k: rank_evidence(v["retrieved_items"]) for k, v in files(FILES[m]).items()}
         for m in ("text", "image")
@@ -85,10 +91,11 @@ def main():
     queries = {}
     counts = {}
     for m in tqdm(MODELS, desc="Prepare public rankings"):
-        fits[m], queries[m], counts[m] = construct(m, truth, text, image)
+        fits[m], queries[m], counts[m], model_refs[m] = construct(m, truth, text, image)
     official = lookup()
     out = {}
     for model in MODELS:
+        refs = model_refs[model]
         specs = [("base", None, None, None)]
         for src, family, penalty in product(
             dict.fromkeys([model, "MetaCLIP2"]), FEATURES, (0.0, 0.25)
