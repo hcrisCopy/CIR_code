@@ -75,6 +75,9 @@ def native(rows):
         lookup = defaultdict(list)
         for c in cats:
             x = load(OUT / ds / f"{c}.pt")
+            e = load(OUT / ds / f"{c}_edits.pt")
+            assert e["ids"] == x["ids"]
+            x["ranks"].update(e["ranks"])
             _, q = layout(ds, c, "val")
             assert [item["id"] for item in q] == x["ids"]
             for i, item in enumerate(q):
