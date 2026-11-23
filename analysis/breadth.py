@@ -111,7 +111,7 @@ def run_category(args, cat, enc, split, banks, weights, count):
         r, t = raw[refidx], text[batch]
         head = enc.head
         h = torch.cat(
-            [head.image_projection_layer(r).relu(), head.text_projection_layer(t).relu()], 1
+            [head.text_projection_layer(t).relu(), head.image_projection_layer(r).relu()], 1
         )
         gate = head.dynamic_scalar(h)
         joint = head.output_layer(head.combiner_layer(h).relu())
