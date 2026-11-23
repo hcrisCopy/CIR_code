@@ -92,6 +92,8 @@ def run_category(args, cat, enc, split, banks, weights, count):
     cr, ct = br[:kb], bt[:kb]
     global_shuffled = global_prior[torch.randperm(len(gallery), generator=gen).cuda()]
     groups = defaultdict(list)
+    subset_ranks = defaultdict(list)
+    shuffled_text = torch.randperm(len(queries), generator=gen)
     margin_records = []
     pools = []
     k = 1 if args.dataset == "cirr" else 10
@@ -182,11 +184,30 @@ def run_category(args, cat, enc, split, banks, weights, count):
             "ref_plus_norm": full - 0.5 * (rn - global_prior) - global_prior,
             "clip_sum": F.normalize(r + t) @ gallery.T,
             "text_only": F.normalize(t) @ gallery.T,
+            "boost_text": full + direct_t,
+            "boost_text_half": full + 0.5 * direct_t,
+            "boost_ref": full + direct_r,
+            "late_text_025": full + 0.25 * (F.normalize(t) @ gallery.T),
+            "late_image_025": full + 0.25 * (F.normalize(r) @ gallery.T),
+            "late_wrong_text_025": full
+            + 0.25 * (F.normalize(text[shuffled_text[batch]]) @ gallery.T),
+            "clip_sum_boost_text": F.normalize(r + 2 * t) @ gallery.T,
+            "image_only": F.normalize(r) @ gallery.T,
         }
         for key, w in weights.items():
             scores[key] = parts @ full.new_tensor(w)
+        if args.dataset == "cirr":
+            subset = torch.tensor(
+                [[index[key] for key in queries[i]["group"]] for i in batch], device="cuda"
+            )
+            locations = tgt[:, None] == subset
+            if not (locations.sum(1) == 1).all():
+                raise ValueError("Missing or repeated group target")
         for key, score in scores.items():
-            groups[key].append(ranks(valid(score), tgt))
+            score = valid(score)
+            groups[key].append(ranks(score, tgt))
+            if args.dataset == "cirr":
+                subset_ranks[key].append(ranks(score.gather(1, subset), locations.long().argmax(1)))
     if split == "train":
         return torch.cat(pools)
     result = {m: torch.cat(xs) for m, xs in groups.items()}
@@ -206,6 +227,7 @@ def run_category(args, cat, enc, split, banks, weights, count):
             ids=prior["ids"],
             ranks=result,
             margins=torch.cat(margin_records),
+            subset_ranks={k: torch.cat(v) for k, v in subset_ranks.items()},
             targets=prior["targets"],
         ),
     )
