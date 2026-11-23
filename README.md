@@ -10,7 +10,8 @@
 conda create -n cir python=3.12 pip -y
 conda activate cir
 python -m pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cu128
-python -m pip install -r requirements.txt
+python -m pip install --index-url https://pypi.org/simple --timeout 60 -r requirements.txt
+python -m pip check
 ```
 
 ## 数据和模型
@@ -24,6 +25,8 @@ python prepare_models.py --models both
 ```
 
 模型放在 `../CIR_data/checkpoints/`。脚本用 curl 下载 OpenAI ViT-B/16 和 CLIP4Cir 作者发布的五个分卷，从中提取两个数据集各自的 RN50x4 编码器与 Combiner。服务器只需上传 `CIR_code/`，后续训练和评测读取本地文件。[CLIP4Cir 权重](https://github.com/ABaldrati/CLIP4Cir/releases/tag/weights)
+
+也可以在 Windows 上准备权重。五个分卷共 8.55 GB，脚本按 SHA-256 校验并直接解包。下载中断后重跑原命令即可续传。若已下载 ViT，只补公开基线可用 `python prepare_models.py --models release`。
 
 ## 运行顺序
 
