@@ -1,4 +1,4 @@
-"""Paired full-gallery estimates, validated strata, and model-count bounds from public ranks."""
+"""Paired full-gallery estimates, validated strata, and aggregate hits from public ranks."""
 
 import csv
 import json
@@ -150,19 +150,25 @@ def external(archive):
                 ]
             )
             mm, t, img, uni = support.T
-            assert np.all((np.maximum(t, img) <= uni) & (uni <= np.minimum(nmod, t + img)))
+            # Use the published per-modality hit flags: support counts exceed the
+            # number of named retrievers in some rows of this release.
+            modes = ("multimodal", "text_only", "image_only")
+            flags = np.array([[s["hits_at_k"][m] for m in modes] for s in d["samples"]], dtype=bool)
+            raw = np.array([[s["ranks"][m] for m in modes] for s in d["samples"]])
+            assert np.array_equal(flags, raw <= meta["k"])
+            mh, th, ih = flags.T
+            uh = th | ih
             out[ds] = dict(
                 queries=len(mm),
-                models=nmod,
+                named_models=nmod,
                 k=meta["k"],
-                any_uni=int((uni > 0).sum()),
-                mm_no_uni=int(((mm > 0) & (uni == 0)).sum()),
-                none=int(((mm == 0) & (uni == 0)).sum()),
-                certainly_mm_hurts_some=int((uni > mm).sum()),
-                certainly_text_beats_mm_some=int((t > mm).sum()),
-                certainly_mm_beats_uni_some=int((mm > uni).sum()),
-                min_model_queries_uni_wins=int(np.maximum(uni - mm, 0).sum()),
-                max_model_queries_uni_wins=int(np.minimum(uni, nmod - mm).sum()),
+                support_exceeds_named=int((support > nmod).any(axis=1).sum()),
+                any_uni=int(uh.sum()),
+                mm_no_uni=int((mh & ~uh).sum()),
+                none=int((~mh & ~uh).sum()),
+                uni_no_mm=int((uh & ~mh).sum()),
+                text_no_mm=int((th & ~mh).sum()),
+                image_no_mm=int((ih & ~mh).sum()),
             )
     return out
 
